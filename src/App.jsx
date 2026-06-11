@@ -336,20 +336,29 @@ function MatchCard({ match, pred, onSave, chipActive = false, chipAvailable = fa
   const loadPreds = async () => {
     if (allPreds) { setShowPreds(v => !v); return; }
     setPredsLoading(true);
-    const { data, error } = await supabase
+    // Fetch predictions (no FK to profiles, so join separately)
+    const { data: pData } = await supabase
       .from("predictions")
-      .select("predicted_home, predicted_away, profiles(name)")
+      .select("user_id, predicted_home, predicted_away")
       .eq("match_id", match.id)
       .eq("league_id", leagueId);
-    if (error) console.error("loadPreds error:", error);
-    // Calculate points client-side from the match's actual score
-    const withPts = (data || []).map(p => {
-      const pts = (match.status === "finished" && match.home_score != null)
-        ? calcScore(p.predicted_home, p.predicted_away, match.home_score, match.away_score).points
-        : null;
-      return { ...p, pts };
-    });
-    setAllPreds(withPts);
+    if (pData?.length) {
+      const userIds = [...new Set(pData.map(p => p.user_id))];
+      const { data: prData } = await supabase
+        .from("profiles")
+        .select("id, name")
+        .in("id", userIds);
+      const nameMap = new Map((prData || []).map(p => [p.id, p.name]));
+      const withPts = pData.map(p => {
+        const pts = (match.status === "finished" && match.home_score != null)
+          ? calcScore(p.predicted_home, p.predicted_away, match.home_score, match.away_score).points
+          : null;
+        return { ...p, name: nameMap.get(p.user_id) || "Unknown", pts };
+      });
+      setAllPreds(withPts);
+    } else {
+      setAllPreds([]);
+    }
     setShowPreds(true);
     setPredsLoading(false);
   };
@@ -512,9 +521,9 @@ function MatchCard({ match, pred, onSave, chipActive = false, chipAvailable = fa
                                 background: exact ? "rgba(240,192,64,0.15)" : "rgba(255,255,255,0.05)",
                                 display:"flex", alignItems:"center", justifyContent:"center",
                                 fontSize:10, fontWeight:800, color: exact ? C.gold : C.textSoft }}>
-                                {p.profiles?.name?.charAt(0).toUpperCase()}
+                                {p.name?.charAt(0).toUpperCase()}
                               </div>
-                              <span style={{fontSize:12, fontWeight:600, color:C.text}}>{p.profiles?.name}</span>
+                              <span style={{fontSize:12, fontWeight:600, color:C.text}}>{p.name}</span>
                             </div>
                             <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                               <span style={{ fontSize:13, fontWeight:800, fontFamily:"'SF Mono',monospace",
