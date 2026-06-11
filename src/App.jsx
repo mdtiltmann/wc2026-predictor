@@ -478,9 +478,10 @@ function MatchCard({ match, pred, onSave, chipActive = false, chipAvailable = fa
         {locked && leagueId && (
           <div style={{ marginTop:10 }}>
             <button onClick={loadPreds}
-              style={{ width:"100%", background:"rgba(255,255,255,0.03)", border:`1px solid ${C.border}`,
-                borderRadius:10, padding:"7px 12px", color:C.textSoft, fontSize:11, fontWeight:600,
-                cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
+              style={{ width:"100%", background:"rgba(185,28,60,0.10)", border:`1px solid rgba(185,28,60,0.3)`,
+                borderRadius:10, padding:"9px 12px", color:C.text, fontSize:12, fontWeight:700,
+                cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:6,
+                touchAction:"manipulation" }}>
               {predsLoading ? "Loading…" : showPreds ? "▲ Hide predictions" : "👥 See all predictions"}
             </button>
             {showPreds && allPreds && (
