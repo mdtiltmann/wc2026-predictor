@@ -336,12 +336,20 @@ function MatchCard({ match, pred, onSave, chipActive = false, chipAvailable = fa
   const loadPreds = async () => {
     if (allPreds) { setShowPreds(v => !v); return; }
     setPredsLoading(true);
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("predictions")
-      .select("predicted_home, predicted_away, scores(points_awarded), profiles(name)")
+      .select("predicted_home, predicted_away, profiles(name)")
       .eq("match_id", match.id)
       .eq("league_id", leagueId);
-    setAllPreds(data || []);
+    if (error) console.error("loadPreds error:", error);
+    // Calculate points client-side from the match's actual score
+    const withPts = (data || []).map(p => {
+      const pts = (match.status === "finished" && match.home_score != null)
+        ? calcScore(p.predicted_home, p.predicted_away, match.home_score, match.away_score).points
+        : null;
+      return { ...p, pts };
+    });
+    setAllPreds(withPts);
     setShowPreds(true);
     setPredsLoading(false);
   };
@@ -489,9 +497,9 @@ function MatchCard({ match, pred, onSave, chipActive = false, chipAvailable = fa
                 {allPreds.length === 0
                   ? <div style={{fontSize:11,color:C.textFaint,textAlign:"center",padding:"8px 0"}}>No predictions made</div>
                   : allPreds
-                      .sort((a, b) => (b.scores?.points_awarded ?? -1) - (a.scores?.points_awarded ?? -1))
+                      .sort((a, b) => (b.pts ?? -1) - (a.pts ?? -1))
                       .map((p, i) => {
-                        const pts = p.scores?.points_awarded;
+                        const pts = p.pts;
                         const exact = pts === 4;
                         const correct = pts === 1;
                         return (
