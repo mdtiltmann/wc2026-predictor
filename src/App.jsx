@@ -1300,7 +1300,26 @@ function EmptyState({ msg }) {
 }
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
+// Auto-reload when a new version is deployed
+function useAutoUpdate() {
+  useEffect(() => {
+    let current = null;
+    const check = async () => {
+      try {
+        const r = await fetch("/version.txt?t=" + Date.now());
+        const v = await r.text();
+        if (current === null) { current = v.trim(); return; }
+        if (v.trim() !== current) window.location.reload();
+      } catch {}
+    };
+    check();
+    const iv = setInterval(check, 60000);
+    return () => clearInterval(iv);
+  }, []);
+}
+
 export default function App() {
+  useAutoUpdate();
   const [user,      setUser]    = useState(null);
   const [userName,  setName]    = useState(null);
   const [tab,            setTab]    = useState("dashboard");
