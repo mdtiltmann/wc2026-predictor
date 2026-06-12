@@ -1534,8 +1534,29 @@ export default function App() {
     } finally { setLoading(false); }
   }, [user]);
 
+  // ── Sync scores from ESPN via Edge Function ──────────────────────────────
+  const syncScores = useCallback(async () => {
+    if (!user) return;
+    try {
+      await supabase.functions.invoke("sync-scores");
+      await reload(); // reload Supabase data after sync
+    } catch (_) {}
+  }, [user, reload]);
+
   useEffect(() => { reload(); }, [reload]);
+
+  // Kick off an immediate sync on load so scores are always fresh
+  useEffect(() => { if (user) syncScores(); }, [user]);
+
   const hasLive = fixtures.some(m => m.status === "live");
+
+  // While live: sync ESPN → Supabase every 60s, reload UI every 10s
+  // No live games: sync every 5 min just in case a match just ended
+  useEffect(() => {
+    const syncIv = setInterval(syncScores, hasLive ? 60000 : 300000);
+    return () => clearInterval(syncIv);
+  }, [syncScores, hasLive]);
+
   useEffect(() => {
     const iv = setInterval(reload, hasLive ? 10000 : 30000);
     return () => clearInterval(iv);
