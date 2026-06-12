@@ -80,6 +80,157 @@ const FLAG_MAP = {
 };
 const flag = (code) => FLAG_MAP[code] || "🏳️";
 
+// ─── ESPN Live Scores ─────────────────────────────────────────────────────────
+function useESPNScores() {
+  const [events, setEvents] = useState([]);
+  const [lastUpdated, setLastUpdated] = useState(null);
+
+  const fetch_ = useCallback(async () => {
+    try {
+      const res = await fetch(
+        "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard"
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      setEvents(data.events || []);
+      setLastUpdated(new Date());
+    } catch (_) {}
+  }, []);
+
+  useEffect(() => {
+    fetch_();
+    const iv = setInterval(fetch_, 10000);
+    return () => clearInterval(iv);
+  }, [fetch_]);
+
+  return { events, lastUpdated, refresh: fetch_ };
+}
+
+function ESPNLiveScores() {
+  const { events, lastUpdated, refresh } = useESPNScores();
+
+  const live     = events.filter(e => e.status?.type?.state === "in");
+  const upcoming = events.filter(e => e.status?.type?.state === "pre");
+  const finished = events.filter(e => e.status?.type?.state === "post" || e.status?.type?.completed);
+
+  if (!events.length) return null;
+
+  const getTeams = (event) => {
+    const comps = event.competitions?.[0]?.competitors || [];
+    return {
+      home: comps.find(c => c.homeAway === "home"),
+      away: comps.find(c => c.homeAway === "away"),
+    };
+  };
+
+  const MatchRow = ({ event }) => {
+    const { home, away } = getTeams(event);
+    const state    = event.status?.type?.state;
+    const detail   = event.status?.type?.detail || "";
+    const isLive   = state === "in";
+    const isPre    = state === "pre";
+    const homeName = home?.team?.shortDisplayName || home?.team?.displayName || "?";
+    const awayName = away?.team?.shortDisplayName || away?.team?.displayName || "?";
+    const homeLogo = home?.team?.logo;
+    const awayLogo = away?.team?.logo;
+
+    return (
+      <div style={{
+        background: isLive ? "rgba(0,200,83,0.04)" : "rgba(255,255,255,0.02)",
+        border: `1px solid ${isLive ? "rgba(0,200,83,0.2)" : C.border}`,
+        borderRadius: 12, padding: "10px 12px", marginBottom: 8,
+        display: "flex", alignItems: "center", gap: 10,
+      }}>
+        <div style={{ display:"flex", alignItems:"center", gap:6, flex:1, minWidth:0 }}>
+          {awayLogo
+            ? <img src={awayLogo} style={{width:22,height:22,objectFit:"contain",flexShrink:0}} alt={awayName} />
+            : <span style={{fontSize:18,flexShrink:0}}>{flag(away?.team?.abbreviation)}</span>}
+          <span style={{ fontSize:12, fontWeight:700, color:away?.winner?C.text:C.textSoft,
+            overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{awayName}</span>
+        </div>
+
+        <div style={{ textAlign:"center", flexShrink:0, minWidth:64 }}>
+          {isLive || state === "post" ? (
+            <div style={{ fontSize:16, fontWeight:900, color:C.text, fontFamily:"'SF Mono',monospace", letterSpacing:2,
+              textShadow: isLive ? `0 0 12px ${C.green}` : undefined }}>
+              {away?.score ?? 0}
+              <span style={{color:C.textFaint,fontSize:12,letterSpacing:0}}> – </span>
+              {home?.score ?? 0}
+            </div>
+          ) : (
+            <div style={{ fontSize:11, color:C.blue, fontWeight:700 }}>
+              {new Date(event.date).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}
+            </div>
+          )}
+          <div style={{ fontSize:9, fontWeight:800, marginTop:2,
+            color: isLive ? C.green : C.textFaint,
+            animation: isLive ? "pulse 2s infinite" : undefined,
+            letterSpacing:"0.06em" }}>
+            {isLive ? `● ${detail}` : state==="post" ? "FT" : isPre ? "UPCOMING" : detail}
+          </div>
+        </div>
+
+        <div style={{ display:"flex", alignItems:"center", gap:6, flex:1, minWidth:0, justifyContent:"flex-end" }}>
+          <span style={{ fontSize:12, fontWeight:700, color:home?.winner?C.text:C.textSoft,
+            overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", textAlign:"right" }}>{homeName}</span>
+          {homeLogo
+            ? <img src={homeLogo} style={{width:22,height:22,objectFit:"contain",flexShrink:0}} alt={homeName} />
+            : <span style={{fontSize:18,flexShrink:0}}>{flag(home?.team?.abbreviation)}</span>}
+        </div>
+      </div>
+    );
+  };
+
+  const Section = ({ label, items }) => {
+    if (!items.length) return null;
+    return (
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ fontSize:9, fontWeight:700, color:C.textFaint, letterSpacing:"0.12em",
+          textTransform:"uppercase", marginBottom:8 }}>{label}</div>
+        {items.map(e => <MatchRow key={e.id} event={e} />)}
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ background:C.card, border:`1px solid ${C.border}`,
+      borderRadius:18, padding:"14px 14px 10px", marginBottom:20 }}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+          <span style={{ fontSize:13, fontWeight:800, color:C.text }}>⚽ WC 2026 Scores</span>
+          <span style={{ background:"rgba(240,192,64,0.12)", border:"1px solid rgba(240,192,64,0.25)",
+            color:C.gold, fontSize:8, fontWeight:800, padding:"2px 6px", borderRadius:4, letterSpacing:"0.08em" }}>
+            ESPN
+          </span>
+          {live.length > 0 && (
+            <span style={{ background:"rgba(0,200,83,0.1)", border:"1px solid rgba(0,200,83,0.25)",
+              color:C.green, fontSize:8, fontWeight:800, padding:"2px 6px", borderRadius:4,
+              animation:"pulse 2s infinite", letterSpacing:"0.06em" }}>
+              ● LIVE
+            </span>
+          )}
+        </div>
+        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+          {lastUpdated && (
+            <span style={{ fontSize:9, color:C.textFaint }}>
+              {lastUpdated.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",second:"2-digit"})}
+            </span>
+          )}
+          <button onClick={refresh}
+            style={{ background:"rgba(255,255,255,0.04)", border:`1px solid ${C.border}`,
+              color:C.textSoft, fontSize:10, padding:"3px 8px", borderRadius:6, cursor:"pointer" }}>
+            ↻
+          </button>
+        </div>
+      </div>
+
+      <Section label="Live Now" items={live} />
+      <Section label="Upcoming" items={upcoming} />
+      <Section label="Final" items={finished} />
+    </div>
+  );
+}
+
 // ─── Join Screen ──────────────────────────────────────────────────────────────
 function JoinScreen({ onJoined }) {
   const [step,    setStep]   = useState("name");
@@ -668,6 +819,7 @@ function DashboardPage({ fixtures, predMap, leaderboard, userId, userName, onNav
 
   return (
     <div>
+      <ESPNLiveScores />
       {/* Hero */}
       <div style={{ borderRadius:22, overflow:"hidden", marginBottom:16, position:"relative",
         background:"linear-gradient(135deg,#0A1F3A 0%,#071428 50%,#060912 100%)",
