@@ -809,7 +809,7 @@ function LbRow({ entry, rank, currentUserId }) {
 }
 
 // ─── Pages ────────────────────────────────────────────────────────────────────
-function DashboardPage({ fixtures, predMap, leaderboard, userId, userName, onNav, missingCount }) {
+function DashboardPage({ fixtures, predMap, leaderboard, userId, userName, onNav, missingCount, teams }) {
   const now      = new Date();
   const myEntry  = leaderboard.find(e => e.user_id === userId);
   const unpred   = fixtures.filter(m => !predMap.has(m.id) && new Date(m.kickoff) > now);
@@ -820,6 +820,7 @@ function DashboardPage({ fixtures, predMap, leaderboard, userId, userName, onNav
   return (
     <div>
       <ESPNLiveScores />
+      <TournamentPicker userId={userId} teams={teams || []} />
       {/* Hero */}
       <div style={{ borderRadius:22, overflow:"hidden", marginBottom:16, position:"relative",
         background:"linear-gradient(135deg,#0A1F3A 0%,#071428 50%,#060912 100%)",
@@ -1126,6 +1127,124 @@ function StatsPage({ fixtures, predMap, leaderboard, userId }) {
           </div>
         ))
       }
+    </div>
+  );
+}
+
+
+// ─── Tournament Winner Prediction ─────────────────────────────────────────────
+const QF_LOCKOUT = new Date("2026-06-28T00:00:00Z");
+const TOURNEY_BONUS = 5;
+
+function TournamentPicker({ userId, teams }) {
+  const [pick,      setPick]    = useState(null);
+  const [saved,     setSaved]   = useState(null);
+  const [loading,   setLoading] = useState(true);
+  const [saving,    setSaving]  = useState(false);
+  const [allPicks,  setAllPicks] = useState([]);
+  const locked = new Date() >= QF_LOCKOUT;
+
+  useEffect(() => {
+    if (!userId) return;
+    Promise.all([
+      supabase.from("tournament_predictions").select("team_id").eq("user_id", userId).single(),
+      supabase.from("tournament_predictions").select("user_id, team_id, profiles(name)"),
+    ]).then(([{ data: mine }, { data: all }]) => {
+      if (mine) { setPick(mine.team_id); setSaved(mine.team_id); }
+      if (all)  setAllPicks(all);
+      setLoading(false);
+    });
+  }, [userId]);
+
+  const handleSave = async () => {
+    if (!pick || locked) return;
+    setSaving(true);
+    await supabase.from("tournament_predictions").upsert(
+      { user_id: userId, team_id: pick, updated_at: new Date().toISOString() },
+      { onConflict: "user_id" }
+    );
+    setSaved(pick);
+    setSaving(false);
+  };
+
+  const savedTeam = teams.find(t => t.id === saved);
+  const pickTeam  = teams.find(t => t.id === pick);
+
+  const teamsByGroup = teams.reduce((acc, t) => {
+    const g = t.group || "Other";
+    if (!acc[g]) acc[g] = [];
+    acc[g].push(t);
+    return acc;
+  }, {});
+
+  if (loading) return null;
+
+  return (
+    <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:18, padding:16, marginBottom:20 }}>
+      {/* Header */}
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14 }}>
+        <div>
+          <div style={{ fontSize:14, fontWeight:800, color:C.text }}>🏆 Who wins the World Cup?</div>
+          <div style={{ fontSize:11, color:C.textFaint, marginTop:2 }}>
+            {locked ? "Locked before Quarter Finals" : `Locks Jun 28 · ${TOURNEY_BONUS} bonus points if correct`}
+          </div>
+        </div>
+        {savedTeam && (
+          <div style={{ display:"flex", alignItems:"center", gap:6, background:"rgba(240,192,64,0.08)",
+            border:"1px solid rgba(240,192,64,0.2)", borderRadius:10, padding:"4px 10px" }}>
+            <span style={{fontSize:18}}>{flag(savedTeam.code)}</span>
+            <span style={{fontSize:11, fontWeight:700, color:C.gold}}>{savedTeam.name}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Team grid — only show if not locked or no pick yet */}
+      {!locked && (
+        <>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:6, marginBottom:12 }}>
+            {teams.map(t => (
+              <button key={t.id} onClick={() => setPick(t.id)}
+                style={{ background: pick === t.id ? "rgba(240,192,64,0.15)" : "rgba(255,255,255,0.03)",
+                  border: `1px solid ${pick === t.id ? "rgba(240,192,64,0.4)" : C.border}`,
+                  borderRadius:10, padding:"8px 4px", cursor:"pointer",
+                  display:"flex", flexDirection:"column", alignItems:"center", gap:3 }}>
+                <span style={{fontSize:20}}>{flag(t.code)}</span>
+                <span style={{fontSize:9, fontWeight:600, color: pick === t.id ? C.gold : C.textSoft,
+                  textAlign:"center", lineHeight:1.2}}>{t.name.split(" ").slice(-1)[0]}</span>
+              </button>
+            ))}
+          </div>
+
+          <button onClick={handleSave}
+            disabled={!pick || pick === saved || saving}
+            style={{ width:"100%", background: (!pick || pick === saved) ? "rgba(255,255,255,0.04)" : `linear-gradient(135deg,${C.gold},${C.goldDim})`,
+              border:`1px solid ${(!pick || pick === saved) ? C.border : "transparent"}`,
+              borderRadius:12, padding:"12px", color: (!pick || pick === saved) ? C.textFaint : "#000",
+              fontSize:14, fontWeight:800, cursor: (!pick || pick === saved) ? "default" : "pointer" }}>
+            {saving ? "Saving…" : saved && pick === saved ? `✓ Picked ${savedTeam?.name}` : pick ? `Save — ${pickTeam?.name}` : "Pick a team"}
+          </button>
+        </>
+      )}
+
+      {/* Everyone's picks */}
+      {allPicks.length > 0 && (
+        <div style={{ marginTop:14, borderTop:`1px solid ${C.border}`, paddingTop:12 }}>
+          <div style={{fontSize:10, fontWeight:700, color:C.textFaint, letterSpacing:"0.1em", marginBottom:8}}>EVERYONE'S PICKS</div>
+          <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+            {allPicks.map(p => {
+              const t = teams.find(t => t.id === p.team_id);
+              return t ? (
+                <div key={p.user_id} style={{ display:"flex", alignItems:"center", gap:4,
+                  background:"rgba(255,255,255,0.03)", border:`1px solid ${C.border}`,
+                  borderRadius:8, padding:"4px 8px" }}>
+                  <span style={{fontSize:14}}>{flag(t.code)}</span>
+                  <span style={{fontSize:10, color:C.textSoft}}>{p.profiles?.name}</span>
+                </div>
+              ) : null;
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1516,6 +1635,15 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
+  const [teams, setTeams] = useState([]);
+
+  // Load teams once
+  useEffect(() => {
+    supabase.from("teams").select("id,name,code").order("name").then(({ data }) => {
+      if (data) setTeams(data);
+    });
+  }, []);
+
   const reload = useCallback(async () => {
     if (!user) return;
     setLoading(true);
@@ -1691,7 +1819,7 @@ export default function App() {
 
       {/* Content */}
       <div style={{ padding:"16px 14px calc(80px + env(safe-area-inset-bottom))", maxWidth:600, margin:"0 auto" }}>
-        {tab==="dashboard"   && <DashboardPage fixtures={fixtures} predMap={predMap} leaderboard={leaderboard} userId={user.id} userName={userName} onNav={setTab} missingCount={missingCount} />}
+        {tab==="dashboard"   && <DashboardPage fixtures={fixtures} predMap={predMap} leaderboard={leaderboard} userId={user.id} userName={userName} onNav={setTab} missingCount={missingCount} teams={teams} />}
         {tab==="fixtures"    && <FixturesPage  fixtures={fixtures} predMap={predMap} onSave={savePred} chipMatchId={chipMatchId} chipAvailable={!chipMatchId} onChipToggle={toggleChip} leagueId={LEAGUE_ID} />}
         {tab==="missing"     && <MissingPage   fixtures={fixtures} predMap={predMap} onSave={savePred} />}
         {tab==="leaderboard" && <LeaderboardPage leaderboard={leaderboard} userId={user.id} />}
