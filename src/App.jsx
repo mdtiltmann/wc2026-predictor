@@ -1793,7 +1793,8 @@ export default function App() {
         {tab==="missing"     && <MissingPage   fixtures={fixtures} predMap={predMap} onSave={savePred} />}
         {tab==="leaderboard" && <LeaderboardPage leaderboard={leaderboard} userId={user.id} />}
         {tab==="stats"       && <StatsPage fixtures={fixtures} predMap={predMap} leaderboard={leaderboard} userId={user.id} />}
-        {tab==="rules"       && <RulesPage />}
+        {tab==="rules"          && <RulesPage />}
+        {tab==="notifications"  && <NotificationsPage />}
       </div>
 
       {/* Bottom nav */}
