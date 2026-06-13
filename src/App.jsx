@@ -1130,7 +1130,7 @@ function StatsPage({ fixtures, predMap, leaderboard, userId }) {
   );
 }
 
-function NotificationsPage() {
+function NotificationsPage({ userId }) {
   const [status, setStatus] = useState("idle"); // idle | requesting | granted | denied | unsupported
 
   // Check if already subscribed on mount — verify against DB too
@@ -1213,7 +1213,7 @@ function NotificationsPage() {
             {status === "requesting" ? "Enabling…" : "🔔 Enable Notifications"}
           </button>
         )}
-        {status === "granted" && (
+        {status === "granted" && userId === "d0d6d756-5880-4798-83f5-b3d1ff426eca" && (
           <button onClick={async () => {
             const { data } = await supabase.functions.invoke("send-test-notification");
             alert(data ? `Result: ${JSON.stringify(data)}` : "Sent!");
@@ -1826,7 +1826,7 @@ export default function App() {
         {tab==="leaderboard" && <LeaderboardPage leaderboard={leaderboard} userId={user.id} />}
         {tab==="stats"       && <StatsPage fixtures={fixtures} predMap={predMap} leaderboard={leaderboard} userId={user.id} />}
         {tab==="rules"          && <RulesPage />}
-        {tab==="notifications"  && <NotificationsPage />}
+        {tab==="notifications"  && <NotificationsPage userId={user.id} />}
       </div>
 
       {/* Bottom nav */}
