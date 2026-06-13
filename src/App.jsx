@@ -1143,8 +1143,10 @@ function NotificationsPage() {
       if (permission !== "granted") { setStatus("denied"); return; }
 
       const reg = await navigator.serviceWorker.ready;
+      // Force fresh subscription — unsubscribe old one first
       const existing = await reg.pushManager.getSubscription();
-      const sub = existing || await reg.pushManager.subscribe({
+      if (existing) await existing.unsubscribe();
+      const sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: "BLf2yqyu3jSuaN7VIceL9O3clxztZxpvT8oLF1E6lnP4I2BpbA9ifGshBxYx79vNBolieVwOPJFIVgFj-EyOdjI",
       });
