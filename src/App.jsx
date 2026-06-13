@@ -1160,7 +1160,7 @@ function NotificationsPage() {
       if (existing) await existing.unsubscribe();
       const sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: "BLf2yqyu3jSuaN7VIceL9O3clxztZxpvT8oLF1E6lnP4I2BpbA9ifGshBxYx79vNBolieVwOPJFIVgFj-EyOdjI",
+        applicationServerKey: "BHIYgIFJbMD5zwCqzHxsLptGi4seGL6P0imeB6OzwrZjBFvikenJlMCNTos2WfYseOx-JfjlNaYJiny1n6FdCVM",
       });
       const key  = sub.getKey("p256dh");
       const auth = sub.getKey("auth");
