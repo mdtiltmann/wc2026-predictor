@@ -1133,16 +1133,24 @@ function StatsPage({ fixtures, predMap, leaderboard, userId }) {
 function NotificationsPage() {
   const [status, setStatus] = useState("idle"); // idle | requesting | granted | denied | unsupported
 
-  // Check if already subscribed on mount
+  // Check if already subscribed on mount — verify against DB too
   useEffect(() => {
     if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
       setStatus("unsupported"); return;
     }
-    navigator.serviceWorker.ready.then(reg =>
-      reg.pushManager.getSubscription()
-    ).then(sub => {
-      if (sub) setStatus("granted");
-    }).catch(() => {});
+    navigator.serviceWorker.ready.then(async reg => {
+      const sub = await reg.pushManager.getSubscription();
+      if (!sub) { setStatus("idle"); return; }
+      // Check if this subscription is actually saved in DB
+      const { data } = await supabase.from("push_subscriptions").select("endpoint").eq("endpoint", sub.endpoint).single();
+      if (data) {
+        setStatus("granted");
+      } else {
+        // Subscription exists in browser but not DB — unsubscribe and reset
+        await sub.unsubscribe();
+        setStatus("idle");
+      }
+    }).catch(() => setStatus("idle"));
   }, []);
 
   const handleEnable = async () => {
