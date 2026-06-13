@@ -1130,135 +1130,6 @@ function StatsPage({ fixtures, predMap, leaderboard, userId }) {
   );
 }
 
-function NotificationsPage({ userId }) {
-  const [status, setStatus] = useState("idle"); // idle | requesting | granted | denied | unsupported
-
-  // Check if already subscribed on mount — verify against DB too
-  useEffect(() => {
-    if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
-      setStatus("unsupported"); return;
-    }
-    navigator.serviceWorker.ready.then(async reg => {
-      const sub = await reg.pushManager.getSubscription();
-      if (!sub) { setStatus("idle"); return; }
-      // Check if this subscription is actually saved in DB
-      const { data } = await supabase.from("push_subscriptions").select("endpoint").eq("endpoint", sub.endpoint).single();
-      if (data) {
-        setStatus("granted");
-      } else {
-        // Subscription exists in browser but not DB — unsubscribe and reset
-        await sub.unsubscribe();
-        setStatus("idle");
-      }
-    }).catch(() => setStatus("idle"));
-  }, []);
-
-  const handleEnable = async () => {
-    try {
-      if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
-        setStatus("unsupported"); return;
-      }
-      setStatus("requesting");
-      const permission = await Notification.requestPermission();
-      if (permission !== "granted") { setStatus("denied"); return; }
-
-      const reg = await navigator.serviceWorker.ready;
-      // Force fresh subscription — unsubscribe old one first
-      const existing = await reg.pushManager.getSubscription();
-      if (existing) await existing.unsubscribe();
-      const sub = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: "BHIYgIFJbMD5zwCqzHxsLptGi4seGL6P0imeB6OzwrZjBFvikenJlMCNTos2WfYseOx-JfjlNaYJiny1n6FdCVM",
-      });
-      const key  = sub.getKey("p256dh");
-      const auth = sub.getKey("auth");
-      await supabase.from("push_subscriptions").upsert({
-        user_id:  (await supabase.auth.getUser()).data.user?.id,
-        endpoint: sub.endpoint,
-        p256dh:   btoa(String.fromCharCode(...new Uint8Array(key))),
-        auth:     btoa(String.fromCharCode(...new Uint8Array(auth))),
-      }, { onConflict: "user_id,endpoint" });
-      setStatus("granted");
-    } catch(e) {
-      setStatus("denied");
-    }
-  };
-
-  const icon  = status === "granted" ? "✅" : status === "denied" ? "🔕" : status === "unsupported" ? "📵" : "🔔";
-  const title = status === "granted" ? "You're all set!" : status === "denied" ? "Notifications Blocked" : status === "unsupported" ? "Not Supported" : "Enable Daily Reminders";
-  const body  = status === "granted"
-    ? "You'll get a notification every day at 4pm with that day's matches."
-    : status === "denied"
-    ? "You blocked notifications. Go to your phone Settings → find this site → set Notifications to Allow, then come back and try again."
-    : status === "unsupported"
-    ? "Your browser doesn\'t support push notifications. On iPhone, use Safari and add the app to your Home Screen first."
-    : "Get a daily nudge at 4:00 PM reminding you to predict that day\'s matches before kickoff.";
-
-  return (
-    <div>
-      <PageTitle title="🔔 Notifications" sub="Daily reminders at 4:00 PM" />
-
-      <div style={{ background: status === "granted" ? "rgba(0,200,83,0.06)" : "rgba(240,192,64,0.06)",
-        border: `1px solid ${status === "granted" ? "rgba(0,200,83,0.25)" : "rgba(240,192,64,0.15)"}`,
-        borderRadius:20, padding:24, marginBottom:16, textAlign:"center" }}>
-        <div style={{fontSize:52, marginBottom:12}}>{icon}</div>
-        <div style={{fontSize:16, fontWeight:800, color:C.text, marginBottom:8}}>{title}</div>
-        <div style={{fontSize:13, color:C.textSoft, lineHeight:1.7, marginBottom:22}}>{body}</div>
-        {status !== "granted" && status !== "unsupported" && (
-          <button onClick={handleEnable} disabled={status === "requesting"}
-            style={{ width:"100%", background:`linear-gradient(135deg,${C.gold},${C.goldDim})`,
-              border:"none", borderRadius:14, padding:16, color:"#000",
-              fontSize:16, fontWeight:900, cursor:"pointer", opacity: status === "requesting" ? 0.6 : 1,
-              boxShadow:"0 4px 20px rgba(240,192,64,0.35)" }}>
-            {status === "requesting" ? "Enabling…" : "🔔 Enable Notifications"}
-          </button>
-        )}
-        {status === "granted" && userId === "d0d6d756-5880-4798-83f5-b3d1ff426eca" && (
-          <button onClick={async () => {
-            const { data } = await supabase.functions.invoke("send-test-notification");
-            alert(data ? `Result: ${JSON.stringify(data)}` : "Sent!");
-          }}
-            style={{ width:"100%", background:"rgba(0,200,83,0.1)", border:"1px solid rgba(0,200,83,0.3)",
-              borderRadius:14, padding:14, color:C.green, fontSize:14, fontWeight:700, cursor:"pointer", marginTop:8 }}>
-            🧪 Send Test Notification
-          </button>
-        )}
-      </div>
-
-      {/* iPhone instructions */}
-      <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:16, padding:16, marginBottom:12 }}>
-        <div style={{fontSize:11, fontWeight:800, color:C.textFaint, letterSpacing:"0.1em", marginBottom:10}}>📱 iPHONE USERS</div>
-        <div style={{fontSize:13, color:C.textSoft, lineHeight:1.9}}>
-          Push notifications require the app to be installed on your Home Screen:<br/>
-          <strong style={{color:C.text}}>1.</strong> Open in <strong style={{color:C.text}}>Safari</strong><br/>
-          <strong style={{color:C.text}}>2.</strong> Tap the <strong style={{color:C.text}}>Share ↑</strong> button<br/>
-          <strong style={{color:C.text}}>3.</strong> Tap <strong style={{color:C.text}}>"Add to Home Screen"</strong><br/>
-          <strong style={{color:C.text}}>4.</strong> Open from your Home Screen<br/>
-          <strong style={{color:C.text}}>5.</strong> Come back here and tap Enable
-        </div>
-      </div>
-
-      {/* What you get */}
-      <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:16, padding:16 }}>
-        <div style={{fontSize:11, fontWeight:800, color:C.textFaint, letterSpacing:"0.1em", marginBottom:12}}>WHAT YOU GET</div>
-        {[
-          ["🕓","Daily at 4:00 PM","Sent every day that matches are scheduled"],
-          ["⚽","Today\'s matches","Shows which teams are playing"],
-          ["🎯","One tap to predict","Opens straight to your Fixtures"],
-        ].map(([ico, t, d]) => (
-          <div key={t} style={{display:"flex", gap:12, alignItems:"flex-start", marginBottom:12}}>
-            <span style={{fontSize:22, flexShrink:0}}>{ico}</span>
-            <div>
-              <div style={{fontSize:13, fontWeight:700, color:C.text}}>{t}</div>
-              <div style={{fontSize:12, color:C.textSoft}}>{d}</div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function RulesPage() {
   const Block = ({emoji,title,children}) => (
     <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:18,padding:18,marginBottom:10}}>
@@ -1749,11 +1620,11 @@ export default function App() {
   const missingCount = openCount + missedCount;
 
   const tabs = [
-    { id:"dashboard",      icon:"⚽", label:"Home" },
-    { id:"fixtures",       icon:"📅", label:"Fixtures" },
-    { id:"leaderboard",    icon:"🏆", label:"Table" },
-    { id:"stats",          icon:"📊", label:"Stats" },
-    { id:"notifications",  icon:"🔔", label:"Notify" },
+    { id:"dashboard",   icon:"⚽", label:"Home" },
+    { id:"fixtures",    icon:"📅", label:"Fixtures" },
+    { id:"leaderboard", icon:"🏆", label:"Table" },
+    { id:"stats",       icon:"📊", label:"Stats" },
+    { id:"rules",       icon:"📖", label:"Rules" },
   ];
   // "missing" tab still navigable via dashboard badge but excluded from bottom nav
 
@@ -1826,7 +1697,6 @@ export default function App() {
         {tab==="leaderboard" && <LeaderboardPage leaderboard={leaderboard} userId={user.id} />}
         {tab==="stats"       && <StatsPage fixtures={fixtures} predMap={predMap} leaderboard={leaderboard} userId={user.id} />}
         {tab==="rules"          && <RulesPage />}
-        {tab==="notifications"  && <NotificationsPage userId={user.id} />}
       </div>
 
       {/* Bottom nav */}
