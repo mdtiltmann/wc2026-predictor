@@ -1213,6 +1213,16 @@ function NotificationsPage() {
             {status === "requesting" ? "Enabling…" : "🔔 Enable Notifications"}
           </button>
         )}
+        {status === "granted" && (
+          <button onClick={async () => {
+            const { data } = await supabase.functions.invoke("send-test-notification");
+            alert(data ? `Result: ${JSON.stringify(data)}` : "Sent!");
+          }}
+            style={{ width:"100%", background:"rgba(0,200,83,0.1)", border:"1px solid rgba(0,200,83,0.3)",
+              borderRadius:14, padding:14, color:C.green, fontSize:14, fontWeight:700, cursor:"pointer", marginTop:8 }}>
+            🧪 Send Test Notification
+          </button>
+        )}
       </div>
 
       {/* iPhone instructions */}
