@@ -820,7 +820,6 @@ function DashboardPage({ fixtures, predMap, leaderboard, userId, userName, onNav
   return (
     <div>
       <ESPNLiveScores />
-      <TournamentPicker userId={userId} teams={teams || []} />
       {/* Hero */}
       <div style={{ borderRadius:22, overflow:"hidden", marginBottom:16, position:"relative",
         background:"linear-gradient(135deg,#0A1F3A 0%,#071428 50%,#060912 100%)",
@@ -1180,23 +1179,30 @@ function TournamentPicker({ userId, teams }) {
   if (loading) return null;
 
   return (
-    <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:18, padding:16, marginBottom:20 }}>
-      {/* Header */}
-      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14 }}>
-        <div>
-          <div style={{ fontSize:14, fontWeight:800, color:C.text }}>🏆 Who wins the World Cup?</div>
-          <div style={{ fontSize:11, color:C.textFaint, marginTop:2 }}>
-            {locked ? "Locked before Quarter Finals" : `Locks Jun 28 · ${TOURNEY_BONUS} bonus points if correct`}
+    <div>
+      <PageTitle title="🥇 World Cup Winner" sub={locked ? "Locked — Quarter Finals" : `Pick your winner · ${TOURNEY_BONUS} bonus points`} />
+
+      {/* Your current pick */}
+      {savedTeam && (
+        <div style={{ background:"linear-gradient(135deg,rgba(240,192,64,0.12),rgba(240,192,64,0.04))",
+          border:"1px solid rgba(240,192,64,0.3)", borderRadius:16, padding:16, marginBottom:16,
+          display:"flex", alignItems:"center", gap:12 }}>
+          <span style={{fontSize:40}}>{flag(savedTeam.code)}</span>
+          <div>
+            <div style={{fontSize:11, color:C.gold, fontWeight:700, letterSpacing:"0.08em"}}>YOUR PICK</div>
+            <div style={{fontSize:18, fontWeight:900, color:C.text}}>{savedTeam.name}</div>
+            <div style={{fontSize:11, color:C.textFaint}}>{locked ? "Locked in ✓" : "Tap another team to change"}</div>
           </div>
         </div>
-        {savedTeam && (
-          <div style={{ display:"flex", alignItems:"center", gap:6, background:"rgba(240,192,64,0.08)",
-            border:"1px solid rgba(240,192,64,0.2)", borderRadius:10, padding:"4px 10px" }}>
-            <span style={{fontSize:18}}>{flag(savedTeam.code)}</span>
-            <span style={{fontSize:11, fontWeight:700, color:C.gold}}>{savedTeam.name}</span>
+      )}
+
+      <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:18, padding:16, marginBottom:16 }}>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14 }}>
+          <div style={{ fontSize:13, fontWeight:800, color:C.text }}>All 48 Teams</div>
+          <div style={{ fontSize:11, color:C.textFaint }}>
+            {locked ? "🔒 Locked" : "Locks Jun 28"}
           </div>
-        )}
-      </div>
+        </div>
 
       {/* Team grid — only show if not locked or no pick yet */}
       {!locked && (
@@ -1226,19 +1232,22 @@ function TournamentPicker({ userId, teams }) {
         </>
       )}
 
+      </div>
+
       {/* Everyone's picks */}
       {allPicks.length > 0 && (
-        <div style={{ marginTop:14, borderTop:`1px solid ${C.border}`, paddingTop:12 }}>
-          <div style={{fontSize:10, fontWeight:700, color:C.textFaint, letterSpacing:"0.1em", marginBottom:8}}>EVERYONE'S PICKS</div>
-          <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+        <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:16, padding:16 }}>
+          <div style={{fontSize:11, fontWeight:700, color:C.textFaint, letterSpacing:"0.1em", marginBottom:12}}>EVERYONE'S PICKS</div>
+          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
             {allPicks.map(p => {
               const t = teams.find(t => t.id === p.team_id);
               return t ? (
-                <div key={p.user_id} style={{ display:"flex", alignItems:"center", gap:4,
-                  background:"rgba(255,255,255,0.03)", border:`1px solid ${C.border}`,
-                  borderRadius:8, padding:"4px 8px" }}>
-                  <span style={{fontSize:14}}>{flag(t.code)}</span>
-                  <span style={{fontSize:10, color:C.textSoft}}>{p.profiles?.name}</span>
+                <div key={p.user_id} style={{ display:"flex", alignItems:"center", gap:10,
+                  background:"rgba(255,255,255,0.02)", border:`1px solid ${C.border}`,
+                  borderRadius:10, padding:"8px 12px" }}>
+                  <span style={{fontSize:22}}>{flag(t.code)}</span>
+                  <span style={{fontSize:13, fontWeight:700, color:C.text, flex:1}}>{t.name}</span>
+                  <span style={{fontSize:12, color:C.textSoft}}>{p.profiles?.name}</span>
                 </div>
               ) : null;
             })}
@@ -1752,7 +1761,7 @@ export default function App() {
     { id:"fixtures",    icon:"📅", label:"Fixtures" },
     { id:"leaderboard", icon:"🏆", label:"Table" },
     { id:"stats",       icon:"📊", label:"Stats" },
-    { id:"rules",       icon:"📖", label:"Rules" },
+    { id:"winner",      icon:"🥇", label:"Winner" },
   ];
   // "missing" tab still navigable via dashboard badge but excluded from bottom nav
 
@@ -1825,6 +1834,7 @@ export default function App() {
         {tab==="leaderboard" && <LeaderboardPage leaderboard={leaderboard} userId={user.id} />}
         {tab==="stats"       && <StatsPage fixtures={fixtures} predMap={predMap} leaderboard={leaderboard} userId={user.id} />}
         {tab==="rules"          && <RulesPage />}
+        {tab==="winner"         && <TournamentPicker userId={user.id} teams={teams || []} />}
       </div>
 
       {/* Bottom nav */}
