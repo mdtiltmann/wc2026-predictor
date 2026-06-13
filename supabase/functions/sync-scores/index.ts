@@ -145,6 +145,37 @@ Deno.serve(async (req) => {
       }
     }
 
+    // ── Auto-detect tournament winner from the Final match ──────────────────
+    const { data: finalMatch } = await supabase
+      .from("matches")
+      .select("id,status,home_score,away_score,home_team_id,away_team_id,round")
+      .ilike("round", "%final%")
+      .not("round", "ilike", "%semi%")
+      .not("round", "ilike", "%quarter%")
+      .eq("status", "finished")
+      .single();
+
+    if (finalMatch) {
+      // Check if winner already set
+      const { data: cfg } = await supabase
+        .from("app_config")
+        .select("value")
+        .eq("key", "tournament_winner_team_id")
+        .single();
+
+      if (!cfg?.value) {
+        // Determine winner — higher score wins (or penalties — either way ESPN marks the winner
+        const winnerId = finalMatch.home_score >= finalMatch.away_score
+          ? finalMatch.home_team_id
+          : finalMatch.away_team_id;
+
+        await supabase.from("app_config").upsert({
+          key: "tournament_winner_team_id",
+          value: winnerId,
+        }, { onConflict: "key" });
+      }
+    }
+
     return new Response(JSON.stringify({ ok: true, synced, scored, errors: errors.slice(0, 10) }), {
       headers: { "Content-Type": "application/json" },
     });
