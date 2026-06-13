@@ -1133,6 +1133,18 @@ function StatsPage({ fixtures, predMap, leaderboard, userId }) {
 function NotificationsPage() {
   const [status, setStatus] = useState("idle"); // idle | requesting | granted | denied | unsupported
 
+  // Check if already subscribed on mount
+  useEffect(() => {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+      setStatus("unsupported"); return;
+    }
+    navigator.serviceWorker.ready.then(reg =>
+      reg.pushManager.getSubscription()
+    ).then(sub => {
+      if (sub) setStatus("granted");
+    }).catch(() => {});
+  }, []);
+
   const handleEnable = async () => {
     try {
       if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
