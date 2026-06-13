@@ -1331,6 +1331,14 @@ function RulesPage() {
         </p>
       </Block>
 
+      <Block emoji="🥇" title="World Cup Winner">
+        <p style={{fontSize:13,color:C.textSoft,lineHeight:1.8,margin:0}}>
+          Go to the <strong style={{color:C.text}}>🥇 Winner</strong> tab and pick which team you think will win the tournament.
+          This is locked in <strong style={{color:C.red}}>before the Quarter Finals (Jun 28)</strong> — you can change your pick up until then.
+          If your team wins the World Cup you get a <strong style={{color:C.gold}}>+5 point bonus</strong> added to your total automatically.
+        </p>
+      </Block>
+
       <Block emoji="🔑" title="Lost Your Session?">
         <p style={{fontSize:13,color:C.textSoft,lineHeight:1.8,margin:0}}>
           Your account is saved permanently. If you get logged out, just open the app again,
