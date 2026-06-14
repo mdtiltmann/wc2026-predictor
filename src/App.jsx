@@ -577,66 +577,121 @@ function startOfISOWeek(d = new Date()) {
 }
 
 // ─── Match odds/probability hook ──────────────────────────────────────────────
-function useMatchOdds(matchId, kickoff, status) {
+// Shared ESPN cache so we don't fetch the same data multiple times
+const espnCache = { data: {}, ts: 0 };
+
+async function getESPNEvents(kickoff) {
+  const date    = new Date(kickoff);
+  const dateStr = date.toISOString().substring(0,10).replace(/-/g,"");
+  const now     = Date.now();
+  if (espnCache.data[dateStr] && now - espnCache.ts < 30000) return espnCache.data[dateStr];
+  try {
+    const res = await fetch(
+      `https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?dates=${dateStr}&limit=50`
+    );
+    if (!res.ok) return [];
+    const d = await res.json();
+    espnCache.data[dateStr] = d.events || [];
+    espnCache.ts = now;
+    return espnCache.data[dateStr];
+  } catch { return []; }
+}
+
+function parseProbability(comp) {
+  if (!comp) return null;
+
+  // Try predictor first (live games)
+  const predictor  = comp.predictor;
+  const homeWinPct = predictor?.homeTeam?.gameProjection;
+  const awayWinPct = predictor?.awayTeam?.gameProjection;
+  if (homeWinPct != null && awayWinPct != null) {
+    const h = Math.round(parseFloat(homeWinPct));
+    const a = Math.round(parseFloat(awayWinPct));
+    const d = Math.max(0, 100 - h - a);
+    return { homePct:h, awayPct:a, drawPct:d, source:"ESPN live predictor" };
+  }
+
+  // Try odds (upcoming games)
+  const odds = comp.odds?.[0];
+  if (odds) {
+    const mlToProb = (ml) => {
+      if (!ml) return null;
+      const m = parseInt(ml);
+      if (isNaN(m)) return null;
+      return m > 0 ? Math.round(100/(m+100)*100) : Math.round(Math.abs(m)/(Math.abs(m)+100)*100);
+    };
+    const h = mlToProb(odds.homeTeamOdds?.moneyLine);
+    const a = mlToProb(odds.awayTeamOdds?.moneyLine);
+    const d = mlToProb(odds.drawOdds?.moneyLine);
+    if (h && a) {
+      // Normalise so they add to 100
+      const total = (h||0) + (a||0) + (d||0);
+      return {
+        homePct: Math.round((h/total)*100),
+        awayPct: Math.round((a/total)*100),
+        drawPct: Math.round(((d||0)/total)*100),
+        source: "Betting odds"
+      };
+    }
+  }
+
+  return null;
+}
+
+function useMatchOdds(matchId, kickoff, status, homeTeamName, awayTeamName) {
   const [odds, setOdds] = useState(null);
 
   useEffect(() => {
-    if (status === "finished") return;
-    if (!matchId) return;
+    if (status === "finished" || !kickoff) return;
 
-    // Find ESPN event by matching kickoff date and fetch summary
     const fetchOdds = async () => {
       try {
-        const date = new Date(kickoff);
-        const dateStr = date.toISOString().substring(0,10).replace(/-/g,"");
-        const res = await fetch(
-          `https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?dates=${dateStr}`
-        );
-        if (!res.ok) return;
-        const data = await res.json();
-        const events = data.events || [];
+        const events = await getESPNEvents(kickoff);
+        if (!events.length) return;
 
-        // Match by finding event closest to our kickoff time
+        // Match by kickoff time (within 30 min) or team name
         const koTime = new Date(kickoff).getTime();
-        let bestEvent = null, bestDiff = Infinity;
+        let bestEvent = null, bestScore = -1;
+
         for (const e of events) {
           const diff = Math.abs(new Date(e.date).getTime() - koTime);
-          if (diff < bestDiff) { bestDiff = diff; bestEvent = e; }
+          if (diff > 1800000) continue; // >30min apart, skip
+
+          const comps = e.competitions?.[0]?.competitors || [];
+          const names = comps.map(c => (c.team?.displayName||"").toLowerCase());
+          const homeMatch = homeTeamName && names.some(n => n.includes(homeTeamName.toLowerCase().split(" ")[0]));
+          const awayMatch = awayTeamName && names.some(n => n.includes(awayTeamName.toLowerCase().split(" ")[0]));
+          const score = (homeMatch?2:0) + (awayMatch?2:0) + (diff < 300000?1:0);
+
+          if (score > bestScore) { bestScore = score; bestEvent = e; }
         }
-        if (!bestEvent || bestDiff > 3600000) return; // >1hr apart = wrong match
 
-        const comp      = bestEvent.competitions?.[0];
-        const predictor = comp?.predictor;
-        const oddsData  = comp?.odds?.[0];
+        if (!bestEvent) return;
 
-        const homeWinPct = predictor?.homeTeam?.gameProjection;
-        const awayWinPct = predictor?.awayTeam?.gameProjection;
-        const hasPredictor = homeWinPct != null && awayWinPct != null;
+        // First try summary endpoint for richer data
+        let prob = parseProbability(bestEvent.competitions?.[0]);
 
-        const mlToProb = (ml) => {
-          if (!ml) return null;
-          const m = parseInt(ml);
-          if (isNaN(m)) return null;
-          return m > 0 ? Math.round(100/(m+100)*100) : Math.round(Math.abs(m)/(Math.abs(m)+100)*100);
-        };
+        if (!prob) {
+          // Try the summary endpoint
+          try {
+            const sr = await fetch(
+              `https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/summary?event=${bestEvent.id}`
+            );
+            if (sr.ok) {
+              const sd = await sr.json();
+              prob = parseProbability(sd.header?.competitions?.[0]);
+            }
+          } catch {}
+        }
 
-        const homeProb = mlToProb(oddsData?.homeTeamOdds?.moneyLine);
-        const awayProb = mlToProb(oddsData?.awayTeamOdds?.moneyLine);
-        const drawProb = mlToProb(oddsData?.drawOdds?.moneyLine);
-
-        const homePct = hasPredictor ? Math.round(parseFloat(homeWinPct)) : (homeProb ?? 45);
-        const awayPct = hasPredictor ? Math.round(parseFloat(awayWinPct)) : (awayProb ?? 45);
-        const drawPct = drawProb ?? Math.max(0, 100 - homePct - awayPct);
-        const source  = hasPredictor ? "ESPN live predictor" : oddsData ? "Betting odds" : null;
-
-        setOdds({ homePct, awayPct, drawPct, source });
-      } catch (_) {}
+        if (prob) setOdds(prob);
+      } catch {}
     };
 
     fetchOdds();
-    const iv = setInterval(fetchOdds, 30000);
+    const iv = setInterval(fetchOdds, status === "live" ? 10000 : 60000);
     return () => clearInterval(iv);
-  }, [matchId, kickoff, status]);
+  }, [matchId, kickoff, status, homeTeamName, awayTeamName]);
 
   return odds;
 }
@@ -647,7 +702,7 @@ function MatchCard({ match, pred, onSave, chipActive = false, chipAvailable = fa
   const [allPreds,  setAllPreds]    = useState(null);
   const [predsLoading, setPredsLoading] = useState(false);
   const elapsed    = useLiveClock(match);
-  const matchOdds  = useMatchOdds(match.id, match.kickoff, match.status);
+  const matchOdds  = useMatchOdds(match.id, match.kickoff, match.status, home?.name, away?.name);
 
   // Lock at kickoff time client-side — don't rely only on status from server
   const pastKickoff = new Date(match.kickoff) <= new Date();
