@@ -576,12 +576,78 @@ function startOfISOWeek(d = new Date()) {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + diff));
 }
 
+// ─── Match odds/probability hook ──────────────────────────────────────────────
+function useMatchOdds(matchId, kickoff, status) {
+  const [odds, setOdds] = useState(null);
+
+  useEffect(() => {
+    if (status === "finished") return;
+    if (!matchId) return;
+
+    // Find ESPN event by matching kickoff date and fetch summary
+    const fetchOdds = async () => {
+      try {
+        const date = new Date(kickoff);
+        const dateStr = date.toISOString().substring(0,10).replace(/-/g,"");
+        const res = await fetch(
+          `https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?dates=${dateStr}`
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        const events = data.events || [];
+
+        // Match by finding event closest to our kickoff time
+        const koTime = new Date(kickoff).getTime();
+        let bestEvent = null, bestDiff = Infinity;
+        for (const e of events) {
+          const diff = Math.abs(new Date(e.date).getTime() - koTime);
+          if (diff < bestDiff) { bestDiff = diff; bestEvent = e; }
+        }
+        if (!bestEvent || bestDiff > 3600000) return; // >1hr apart = wrong match
+
+        const comp      = bestEvent.competitions?.[0];
+        const predictor = comp?.predictor;
+        const oddsData  = comp?.odds?.[0];
+
+        const homeWinPct = predictor?.homeTeam?.gameProjection;
+        const awayWinPct = predictor?.awayTeam?.gameProjection;
+        const hasPredictor = homeWinPct != null && awayWinPct != null;
+
+        const mlToProb = (ml) => {
+          if (!ml) return null;
+          const m = parseInt(ml);
+          if (isNaN(m)) return null;
+          return m > 0 ? Math.round(100/(m+100)*100) : Math.round(Math.abs(m)/(Math.abs(m)+100)*100);
+        };
+
+        const homeProb = mlToProb(oddsData?.homeTeamOdds?.moneyLine);
+        const awayProb = mlToProb(oddsData?.awayTeamOdds?.moneyLine);
+        const drawProb = mlToProb(oddsData?.drawOdds?.moneyLine);
+
+        const homePct = hasPredictor ? Math.round(parseFloat(homeWinPct)) : (homeProb ?? 45);
+        const awayPct = hasPredictor ? Math.round(parseFloat(awayWinPct)) : (awayProb ?? 45);
+        const drawPct = drawProb ?? Math.max(0, 100 - homePct - awayPct);
+        const source  = hasPredictor ? "ESPN live predictor" : oddsData ? "Betting odds" : null;
+
+        setOdds({ homePct, awayPct, drawPct, source });
+      } catch (_) {}
+    };
+
+    fetchOdds();
+    const iv = setInterval(fetchOdds, 30000);
+    return () => clearInterval(iv);
+  }, [matchId, kickoff, status]);
+
+  return odds;
+}
+
 function MatchCard({ match, pred, onSave, chipActive = false, chipAvailable = false, onChipToggle, chipWeekUsed = false, leagueId }) {
   const [chipSaving, setChipSaving] = useState(false);
   const [showPreds, setShowPreds]   = useState(false);
   const [allPreds,  setAllPreds]    = useState(null);
   const [predsLoading, setPredsLoading] = useState(false);
-  const elapsed = useLiveClock(match);
+  const elapsed    = useLiveClock(match);
+  const matchOdds  = useMatchOdds(match.id, match.kickoff, match.status);
 
   // Lock at kickoff time client-side — don't rely only on status from server
   const pastKickoff = new Date(match.kickoff) <= new Date();
@@ -753,6 +819,37 @@ function MatchCard({ match, pred, onSave, chipActive = false, chipAvailable = fa
 
         {match.h2h?.played > 0 && (
           <H2HBadge h2h={match.h2h} homeName={home?.name} awayName={away?.name} />
+        )}
+
+        {/* Win probability bar */}
+        {matchOdds && match.status !== "finished" && (
+          <div style={{ marginTop:12, padding:"10px 12px", background:"rgba(255,255,255,0.02)",
+            border:`1px solid ${C.border}`, borderRadius:12 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
+              <div style={{textAlign:"left"}}>
+                <div style={{fontSize:13,fontWeight:900,color:matchOdds.homePct>=matchOdds.awayPct?C.gold:C.textSoft}}>{matchOdds.homePct}%</div>
+                <div style={{fontSize:9,color:C.textFaint}}>{home?.name?.split(" ").slice(-1)[0]} win</div>
+              </div>
+              <div style={{textAlign:"center"}}>
+                <div style={{fontSize:13,fontWeight:700,color:C.textSoft}}>{matchOdds.drawPct}%</div>
+                <div style={{fontSize:9,color:C.textFaint}}>Draw</div>
+              </div>
+              <div style={{textAlign:"right"}}>
+                <div style={{fontSize:13,fontWeight:900,color:matchOdds.awayPct>=matchOdds.homePct?C.gold:C.textSoft}}>{matchOdds.awayPct}%</div>
+                <div style={{fontSize:9,color:C.textFaint}}>{away?.name?.split(" ").slice(-1)[0]} win</div>
+              </div>
+            </div>
+            <div style={{ display:"flex", borderRadius:6, overflow:"hidden", height:8, gap:1 }}>
+              <div style={{flex:matchOdds.homePct, background:C.gold, opacity:0.8, transition:"flex 0.5s"}} />
+              <div style={{flex:matchOdds.drawPct, background:"rgba(255,255,255,0.12)", transition:"flex 0.5s"}} />
+              <div style={{flex:matchOdds.awayPct, background:C.blue, opacity:0.8, transition:"flex 0.5s"}} />
+            </div>
+            {matchOdds.source && (
+              <div style={{fontSize:9,color:C.textFaint,marginTop:5,textAlign:"center",letterSpacing:"0.05em"}}>
+                {match.status === "live" ? "🔴 " : "📊 "}{matchOdds.source}
+              </div>
+            )}
+          </div>
         )}
 
         {/* All predictions panel */}
