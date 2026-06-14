@@ -600,6 +600,11 @@ async function getESPNEvents(kickoff) {
 function parseProbability(comp) {
   if (!comp) return null;
 
+  // Log what ESPN gives us so we can debug
+  console.log("[ESPN] comp keys:", Object.keys(comp));
+  console.log("[ESPN] predictor:", comp.predictor);
+  console.log("[ESPN] odds:", comp.odds);
+
   // Try predictor first (live games)
   const predictor  = comp.predictor;
   const homeWinPct = predictor?.homeTeam?.gameProjection;
@@ -608,12 +613,14 @@ function parseProbability(comp) {
     const h = Math.round(parseFloat(homeWinPct));
     const a = Math.round(parseFloat(awayWinPct));
     const d = Math.max(0, 100 - h - a);
+    console.log("[ESPN] Using predictor:", h, a, d);
     return { homePct:h, awayPct:a, drawPct:d, source:"ESPN live predictor" };
   }
 
   // Try odds (upcoming games)
   const odds = comp.odds?.[0];
   if (odds) {
+    console.log("[ESPN] odds keys:", Object.keys(odds));
     const mlToProb = (ml) => {
       if (!ml) return null;
       const m = parseInt(ml);
@@ -623,8 +630,8 @@ function parseProbability(comp) {
     const h = mlToProb(odds.homeTeamOdds?.moneyLine);
     const a = mlToProb(odds.awayTeamOdds?.moneyLine);
     const d = mlToProb(odds.drawOdds?.moneyLine);
+    console.log("[ESPN] odds probs:", h, a, d);
     if (h && a) {
-      // Normalise so they add to 100
       const total = (h||0) + (a||0) + (d||0);
       return {
         homePct: Math.round((h/total)*100),
@@ -635,7 +642,9 @@ function parseProbability(comp) {
     }
   }
 
-  return null;
+  // ESPN doesn't have odds for this match — use 50/50 as fallback
+  console.log("[ESPN] No odds or predictor found — using fallback");
+  return { homePct:45, awayPct:45, drawPct:10, source:"" };
 }
 
 function useMatchOdds(matchId, kickoff, status, homeTeamName, awayTeamName) {
