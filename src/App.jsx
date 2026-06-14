@@ -95,8 +95,20 @@ const flag = (code) => FLAG_MAP[code] || "🏳️";
 
 // ─── ESPN Live Scores ─────────────────────────────────────────────────────────
 function useESPNScores() {
-  const [events, setEvents] = useState([]);
+  const [events,      setEvents]      = useState([]);
+  const [eventDetail, setEventDetail] = useState({}); // id -> summary data
   const [lastUpdated, setLastUpdated] = useState(null);
+
+  const fetchDetail = useCallback(async (eventId) => {
+    try {
+      const res = await fetch(
+        `https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/summary?event=${eventId}`
+      );
+      if (!res.ok) return null;
+      const d = await res.json();
+      return d;
+    } catch (_) { return null; }
+  }, []);
 
   const fetch_ = useCallback(async () => {
     try {
@@ -105,10 +117,19 @@ function useESPNScores() {
       );
       if (!res.ok) return;
       const data = await res.json();
-      setEvents(data.events || []);
+      const evts = data.events || [];
+      setEvents(evts);
       setLastUpdated(new Date());
+
+      // Fetch detailed summary for each event to get predictor + odds
+      const details = {};
+      await Promise.all(evts.map(async (e) => {
+        const d = await fetchDetail(e.id);
+        if (d) details[e.id] = d;
+      }));
+      setEventDetail(details);
     } catch (_) {}
-  }, []);
+  }, [fetchDetail]);
 
   useEffect(() => {
     fetch_();
@@ -116,11 +137,11 @@ function useESPNScores() {
     return () => clearInterval(iv);
   }, [fetch_]);
 
-  return { events, lastUpdated, refresh: fetch_ };
+  return { events, eventDetail, lastUpdated, refresh: fetch_ };
 }
 
 function ESPNLiveScores() {
-  const { events, lastUpdated, refresh } = useESPNScores();
+  const { events, eventDetail, lastUpdated, refresh } = useESPNScores();
 
   const live     = events.filter(e => e.status?.type?.state === "in");
   const upcoming = events.filter(e => e.status?.type?.state === "pre");
@@ -136,7 +157,7 @@ function ESPNLiveScores() {
     };
   };
 
-  const MatchRow = ({ event }) => {
+  const MatchRow = ({ event, detail }) => {
     const { home, away } = getTeams(event);
     const comp     = event.competitions?.[0];
     const state    = event.status?.type?.state;
@@ -158,32 +179,34 @@ function ESPNLiveScores() {
     const homeRecord = getRecord(home);
     const awayRecord = getRecord(away);
 
-    // Win probability from ESPN predictor
-    const predictor   = comp?.predictor;
-    const homeWinPct  = predictor?.homeTeam?.gameProjection;
-    const awayWinPct  = predictor?.awayTeam?.gameProjection;
+    // Win probability — try detail summary first, then scoreboard comp
+    const detailComp   = detail?.header?.competitions?.[0];
+    const predictor    = detailComp?.predictor || comp?.predictor;
+    const homeWinPct   = predictor?.homeTeam?.gameProjection;
+    const awayWinPct   = predictor?.awayTeam?.gameProjection;
     const hasPredictor = homeWinPct != null && awayWinPct != null;
 
-    // Odds from ESPN
-    const odds       = comp?.odds?.[0];
-    const homeOdds   = odds?.homeTeamOdds?.moneyLine;
-    const awayOdds   = odds?.awayTeamOdds?.moneyLine;
-    const drawOdds   = odds?.drawOdds?.moneyLine;
+    // Odds — try detail then scoreboard
+    const odds     = detailComp?.odds?.[0] || comp?.odds?.[0];
+    const homeOdds = odds?.homeTeamOdds?.moneyLine;
+    const awayOdds = odds?.awayTeamOdds?.moneyLine;
+    const drawOdds = odds?.drawOdds?.moneyLine;
 
-    // Format moneyline to implied probability
     const mlToProb = (ml) => {
       if (!ml) return null;
       const m = parseInt(ml);
       if (isNaN(m)) return null;
-      return m > 0 ? Math.round(100 / (m + 100) * 100) : Math.round(Math.abs(m) / (Math.abs(m) + 100) * 100);
+      return m > 0 ? Math.round(100/(m+100)*100) : Math.round(Math.abs(m)/(Math.abs(m)+100)*100);
     };
     const homeProb = mlToProb(homeOdds);
     const awayProb = mlToProb(awayOdds);
     const drawProb = mlToProb(drawOdds);
 
-    // Use ESPN predictor first, fall back to odds implied probability
-    const awayPct  = hasPredictor ? Math.round(parseFloat(awayWinPct))  : awayProb;
-    const homePct  = hasPredictor ? Math.round(parseFloat(homeWinPct))  : homeProb;
+    // Use predictor first, fall back to odds, fall back to 50/50
+    const awayPct = hasPredictor ? Math.round(parseFloat(awayWinPct)) : (awayProb ?? 45);
+    const homePct = hasPredictor ? Math.round(parseFloat(homeWinPct)) : (homeProb ?? 45);
+    const drawPct = drawProb ?? (100 - awayPct - homePct > 0 ? 100 - awayPct - homePct : 10);
+    const dataSource = hasPredictor ? "ESPN live predictor" : odds ? "Betting odds" : "Equal probability";
 
     return (
       <div style={{
@@ -241,20 +264,29 @@ function ESPNLiveScores() {
         </div>
 
         {/* Win probability bar */}
-        {(awayPct != null || homePct != null) && (isPre || isLive) && (
+        {(isPre || isLive) && (
           <div style={{ marginTop:10, paddingTop:8, borderTop:`1px solid rgba(255,255,255,0.05)` }}>
-            <div style={{ display:"flex", justifyContent:"space-between", marginBottom:4 }}>
-              <span style={{fontSize:9,fontWeight:800,color:awayPct>=(homePct||0)?C.gold:C.textFaint}}>{awayPct}%</span>
-              {drawProb && <span style={{fontSize:9,color:C.textFaint}}>Draw {drawProb}%</span>}
-              <span style={{fontSize:9,fontWeight:800,color:(homePct||0)>=(awayPct||0)?C.gold:C.textFaint}}>{homePct}%</span>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:5 }}>
+              <div style={{textAlign:"left"}}>
+                <div style={{fontSize:11,fontWeight:900,color:awayPct>=homePct?C.blue:C.textSoft}}>{awayPct}%</div>
+                <div style={{fontSize:8,color:C.textFaint}}>Win</div>
+              </div>
+              <div style={{textAlign:"center"}}>
+                <div style={{fontSize:11,fontWeight:700,color:C.textFaint}}>{drawPct}%</div>
+                <div style={{fontSize:8,color:C.textFaint}}>Draw</div>
+              </div>
+              <div style={{textAlign:"right"}}>
+                <div style={{fontSize:11,fontWeight:900,color:homePct>=awayPct?C.gold:C.textSoft}}>{homePct}%</div>
+                <div style={{fontSize:8,color:C.textFaint}}>Win</div>
+              </div>
             </div>
-            <div style={{ display:"flex", borderRadius:4, overflow:"hidden", height:5, gap:1 }}>
-              <div style={{flex:awayPct||1, background:C.blue, opacity:0.8}} />
-              {drawProb && <div style={{flex:drawProb, background:C.textFaint, opacity:0.5}} />}
-              <div style={{flex:homePct||1, background:C.gold, opacity:0.8}} />
+            <div style={{ display:"flex", borderRadius:6, overflow:"hidden", height:6 }}>
+              <div style={{flex:awayPct, background:C.blue, opacity:0.85, transition:"flex 0.5s"}} />
+              <div style={{flex:drawPct, background:"rgba(255,255,255,0.15)", transition:"flex 0.5s"}} />
+              <div style={{flex:homePct, background:C.gold, opacity:0.85, transition:"flex 0.5s"}} />
             </div>
-            <div style={{fontSize:8,color:C.textFaint,marginTop:4,textAlign:"center"}}>
-              {hasPredictor ? "ESPN win probability" : "Based on betting odds"}
+            <div style={{fontSize:8,color:C.textFaint,marginTop:5,textAlign:"center",letterSpacing:"0.05em"}}>
+              {dataSource}
             </div>
           </div>
         )}
@@ -268,7 +300,7 @@ function ESPNLiveScores() {
       <div style={{ marginBottom: 12 }}>
         <div style={{ fontSize:9, fontWeight:700, color:C.textFaint, letterSpacing:"0.12em",
           textTransform:"uppercase", marginBottom:8 }}>{label}</div>
-        {items.map(e => <MatchRow key={e.id} event={e} />)}
+        {items.map(e => <MatchRow key={e.id} event={e} detail={eventDetail[e.id]} />)}
       </div>
     );
   };
