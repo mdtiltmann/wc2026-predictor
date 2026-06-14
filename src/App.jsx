@@ -138,58 +138,126 @@ function ESPNLiveScores() {
 
   const MatchRow = ({ event }) => {
     const { home, away } = getTeams(event);
+    const comp     = event.competitions?.[0];
     const state    = event.status?.type?.state;
     const detail   = event.status?.type?.detail || "";
     const isLive   = state === "in";
     const isPre    = state === "pre";
+    const isPost   = state === "post";
     const homeName = home?.team?.shortDisplayName || home?.team?.displayName || "?";
     const awayName = away?.team?.shortDisplayName || away?.team?.displayName || "?";
     const homeLogo = home?.team?.logo;
     const awayLogo = away?.team?.logo;
+
+    // Win/loss records from ESPN
+    const getRecord = (competitor) => {
+      const rec = competitor?.records?.[0];
+      if (!rec) return null;
+      return rec.summary || null; // e.g. "3-1-1" (W-L-D)
+    };
+    const homeRecord = getRecord(home);
+    const awayRecord = getRecord(away);
+
+    // Win probability from ESPN predictor
+    const predictor   = comp?.predictor;
+    const homeWinPct  = predictor?.homeTeam?.gameProjection;
+    const awayWinPct  = predictor?.awayTeam?.gameProjection;
+    const hasPredictor = homeWinPct != null && awayWinPct != null;
+
+    // Odds from ESPN
+    const odds       = comp?.odds?.[0];
+    const homeOdds   = odds?.homeTeamOdds?.moneyLine;
+    const awayOdds   = odds?.awayTeamOdds?.moneyLine;
+    const drawOdds   = odds?.drawOdds?.moneyLine;
+
+    // Format moneyline to implied probability
+    const mlToProb = (ml) => {
+      if (!ml) return null;
+      const m = parseInt(ml);
+      if (isNaN(m)) return null;
+      return m > 0 ? Math.round(100 / (m + 100) * 100) : Math.round(Math.abs(m) / (Math.abs(m) + 100) * 100);
+    };
+    const homeProb = mlToProb(homeOdds);
+    const awayProb = mlToProb(awayOdds);
+    const drawProb = mlToProb(drawOdds);
+
+    // Use ESPN predictor first, fall back to odds implied probability
+    const awayPct  = hasPredictor ? Math.round(parseFloat(awayWinPct))  : awayProb;
+    const homePct  = hasPredictor ? Math.round(parseFloat(homeWinPct))  : homeProb;
 
     return (
       <div style={{
         background: isLive ? "rgba(0,200,83,0.04)" : "rgba(255,255,255,0.02)",
         border: `1px solid ${isLive ? "rgba(0,200,83,0.2)" : C.border}`,
         borderRadius: 12, padding: "10px 12px", marginBottom: 8,
-        display: "flex", alignItems: "center", gap: 10,
       }}>
-        <div style={{ display:"flex", alignItems:"center", gap:6, flex:1, minWidth:0 }}>
-          {awayLogo
-            ? <img src={awayLogo} style={{width:22,height:22,objectFit:"contain",flexShrink:0}} alt={awayName} />
-            : <span style={{fontSize:18,flexShrink:0}}>{flag(away?.team?.abbreviation)}</span>}
-          <span style={{ fontSize:12, fontWeight:700, color:away?.winner?C.text:C.textSoft,
-            overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{awayName}</span>
-        </div>
+        {/* Main row */}
+        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+          {/* Away team */}
+          <div style={{ display:"flex", alignItems:"center", gap:6, flex:1, minWidth:0 }}>
+            {awayLogo
+              ? <img src={awayLogo} style={{width:22,height:22,objectFit:"contain",flexShrink:0}} alt={awayName} />
+              : <span style={{fontSize:18,flexShrink:0}}>{flag(away?.team?.abbreviation)}</span>}
+            <div style={{minWidth:0}}>
+              <div style={{ fontSize:12, fontWeight:700, color:away?.winner?C.text:C.textSoft,
+                overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{awayName}</div>
+              {awayRecord && <div style={{fontSize:9,color:C.textFaint,marginTop:1}}>{awayRecord}</div>}
+            </div>
+          </div>
 
-        <div style={{ textAlign:"center", flexShrink:0, minWidth:64 }}>
-          {isLive || state === "post" ? (
-            <div style={{ fontSize:16, fontWeight:900, color:C.text, fontFamily:"'SF Mono',monospace", letterSpacing:2,
-              textShadow: isLive ? `0 0 12px ${C.green}` : undefined }}>
-              {away?.score ?? 0}
-              <span style={{color:C.textFaint,fontSize:12,letterSpacing:0}}> – </span>
-              {home?.score ?? 0}
+          {/* Score / time */}
+          <div style={{ textAlign:"center", flexShrink:0, minWidth:64 }}>
+            {isLive || isPost ? (
+              <div style={{ fontSize:16, fontWeight:900, color:C.text, fontFamily:"'SF Mono',monospace", letterSpacing:2,
+                textShadow: isLive ? `0 0 12px ${C.green}` : undefined }}>
+                {away?.score ?? 0}
+                <span style={{color:C.textFaint,fontSize:12,letterSpacing:0}}> – </span>
+                {home?.score ?? 0}
+              </div>
+            ) : (
+              <div style={{ fontSize:11, color:C.blue, fontWeight:700 }}>
+                {new Date(event.date).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}
+              </div>
+            )}
+            <div style={{ fontSize:9, fontWeight:800, marginTop:2,
+              color: isLive ? C.green : C.textFaint,
+              animation: isLive ? "pulse 2s infinite" : undefined,
+              letterSpacing:"0.06em" }}>
+              {isLive ? `● ${detail}` : isPost ? "FT" : isPre ? "UPCOMING" : detail}
             </div>
-          ) : (
-            <div style={{ fontSize:11, color:C.blue, fontWeight:700 }}>
-              {new Date(event.date).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}
+          </div>
+
+          {/* Home team */}
+          <div style={{ display:"flex", alignItems:"center", gap:6, flex:1, minWidth:0, justifyContent:"flex-end" }}>
+            <div style={{minWidth:0, textAlign:"right"}}>
+              <div style={{ fontSize:12, fontWeight:700, color:home?.winner?C.text:C.textSoft,
+                overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{homeName}</div>
+              {homeRecord && <div style={{fontSize:9,color:C.textFaint,marginTop:1}}>{homeRecord}</div>}
             </div>
-          )}
-          <div style={{ fontSize:9, fontWeight:800, marginTop:2,
-            color: isLive ? C.green : C.textFaint,
-            animation: isLive ? "pulse 2s infinite" : undefined,
-            letterSpacing:"0.06em" }}>
-            {isLive ? `● ${detail}` : state==="post" ? "FT" : isPre ? "UPCOMING" : detail}
+            {homeLogo
+              ? <img src={homeLogo} style={{width:22,height:22,objectFit:"contain",flexShrink:0}} alt={homeName} />
+              : <span style={{fontSize:18,flexShrink:0}}>{flag(home?.team?.abbreviation)}</span>}
           </div>
         </div>
 
-        <div style={{ display:"flex", alignItems:"center", gap:6, flex:1, minWidth:0, justifyContent:"flex-end" }}>
-          <span style={{ fontSize:12, fontWeight:700, color:home?.winner?C.text:C.textSoft,
-            overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", textAlign:"right" }}>{homeName}</span>
-          {homeLogo
-            ? <img src={homeLogo} style={{width:22,height:22,objectFit:"contain",flexShrink:0}} alt={homeName} />
-            : <span style={{fontSize:18,flexShrink:0}}>{flag(home?.team?.abbreviation)}</span>}
-        </div>
+        {/* Win probability bar */}
+        {(awayPct != null || homePct != null) && (isPre || isLive) && (
+          <div style={{ marginTop:10, paddingTop:8, borderTop:`1px solid rgba(255,255,255,0.05)` }}>
+            <div style={{ display:"flex", justifyContent:"space-between", marginBottom:4 }}>
+              <span style={{fontSize:9,fontWeight:800,color:awayPct>=(homePct||0)?C.gold:C.textFaint}}>{awayPct}%</span>
+              {drawProb && <span style={{fontSize:9,color:C.textFaint}}>Draw {drawProb}%</span>}
+              <span style={{fontSize:9,fontWeight:800,color:(homePct||0)>=(awayPct||0)?C.gold:C.textFaint}}>{homePct}%</span>
+            </div>
+            <div style={{ display:"flex", borderRadius:4, overflow:"hidden", height:5, gap:1 }}>
+              <div style={{flex:awayPct||1, background:C.blue, opacity:0.8}} />
+              {drawProb && <div style={{flex:drawProb, background:C.textFaint, opacity:0.5}} />}
+              <div style={{flex:homePct||1, background:C.gold, opacity:0.8}} />
+            </div>
+            <div style={{fontSize:8,color:C.textFaint,marginTop:4,textAlign:"center"}}>
+              {hasPredictor ? "ESPN win probability" : "Based on betting odds"}
+            </div>
+          </div>
+        )}
       </div>
     );
   };
