@@ -1989,13 +1989,18 @@ export default function App() {
 
   const toggleChip = async (matchId) => {
     if (chipMatchId === matchId) {
-      const { error } = await supabase.from("chips").delete().eq("id", chipThisWeek.id);
+      // Remove chip — delete this week's chip record
+      const { error } = await supabase.from("chips").delete()
+        .eq("user_id", user.id)
+        .eq("league_id", LEAGUE_ID)
+        .eq("chip_type", "double_game");
       if (error) { alert("Couldn't remove chip: " + error.message); return; }
     } else if (!chipMatchId) {
-      const { error } = await supabase.from("chips").insert({
+      // Place chip — upsert so old weeks don't cause duplicate key errors
+      const { error } = await supabase.from("chips").upsert({
         user_id: user.id, league_id: LEAGUE_ID, chip_type: "double_game",
         target_match_id: matchId, activated_at: new Date().toISOString(),
-      });
+      }, { onConflict: "user_id,league_id,chip_type" });
       if (error) { alert("Couldn't save chip: " + error.message); return; }
     }
     await reload();
