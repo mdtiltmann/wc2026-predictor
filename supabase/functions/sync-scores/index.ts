@@ -26,7 +26,7 @@ function mapStatus(s: string): string {
 function calcPoints(ph: number, pa: number, ah: number, aa: number): number {
   const exact         = ph === ah && pa === aa;
   const correctResult = Math.sign(ph - pa) === Math.sign(ah - aa);
-  return (exact ? 3 : 0) + (correctResult ? 1 : 0);
+  return exact ? 3 : (correctResult ? 1 : 0);
 }
 
 async function recalcScores(matchId: string, hs: number, as_: number) {
